@@ -69,15 +69,16 @@ const processImage = async (req, res) => {
       );
       
     } else if (mode === 'GRAPH') {
-      // GRAPH: Vision AI only (no OCR needed for visual understanding)
-      console.log('📊 Mode: GRAPH - Using Vision AI only');
-      ocrText = 'Visual diagram/graph detected'; // Placeholder
+      // GRAPH: Tesseract OCR + Smart formatting for diagram text
+      console.log('📊 Mode: GRAPH - Using Tesseract OCR + Smart formatting');
+      ocrText = await performOCR(uploadedFile.tempFilePath);
+      console.log('✅ Tesseract Result:', ocrText.substring(0, 100) + '...');
       
-      // Vision AI analyzes the visual elements directly
+      // Use smart formatting to organize the text
       reconstructedText = await analyzeImageWithVision(
         cloudinaryResult.url,
         mode,
-        '' // Empty OCR text - let Vision AI describe everything
+        ocrText
       );
     }
     

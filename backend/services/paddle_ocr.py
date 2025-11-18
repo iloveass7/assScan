@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 import sys
 import json
+import warnings
+
+# Suppress deprecation warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
 from paddleocr import PaddleOCR
 
 def main():
@@ -11,11 +16,10 @@ def main():
     image_path = sys.argv[1]
     
     try:
-        # Initialize PaddleOCR
-        # use_angle_cls=True enables text direction detection
-        # lang='en' for English, use 'ch' for Chinese
+        # Initialize PaddleOCR with updated parameters
+        # use_textline_orientation=True replaces use_angle_cls=True
         ocr = PaddleOCR(
-            use_angle_cls=True,
+            use_textline_orientation=True,
             lang='en',
             show_log=False,
             use_gpu=False  # Set to True if you have GPU

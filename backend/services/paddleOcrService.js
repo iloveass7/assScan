@@ -15,8 +15,8 @@ const performPaddleOCR = async (imagePath) => {
       return reject(new Error('PaddleOCR Python script not found'));
     }
     
-    // Spawn Python process
-    const pythonProcess = spawn('python', [pythonScript, imagePath]);
+    // Spawn Python process with -W ignore flag to suppress warnings
+    const pythonProcess = spawn('python', ['-W', 'ignore', pythonScript, imagePath]);
     
     let dataString = '';
     let errorString = '';
@@ -26,12 +26,16 @@ const performPaddleOCR = async (imagePath) => {
     });
     
     pythonProcess.stderr.on('data', (data) => {
-      errorString += data.toString();
-      console.error('PaddleOCR stderr:', data.toString());
+      // Only log actual errors, not warnings
+      const stderr = data.toString();
+      if (!stderr.includes('DeprecationWarning') && !stderr.includes('FutureWarning')) {
+        errorString += stderr;
+        console.error('PaddleOCR error:', stderr);
+      }
     });
     
     pythonProcess.on('close', (code) => {
-      if (code !== 0) {
+      if (code !== 0 && errorString.trim() !== '') {
         console.error('❌ PaddleOCR failed with code:', code);
         console.error('Error:', errorString);
         return reject(new Error(`PaddleOCR process failed: ${errorString}`));
@@ -39,11 +43,19 @@ const performPaddleOCR = async (imagePath) => {
       
       try {
         const result = JSON.parse(dataString);
+        
+        if (!result.success) {
+          console.error('❌ PaddleOCR returned error:', result.error);
+          return reject(new Error(`PaddleOCR error: ${result.error}`));
+        }
+        
         console.log('✅ PaddleOCR completed');
         
         // Extract text from PaddleOCR result
         let extractedText = '';
-        if (result.text && Array.isArray(result.text)) {
+        if (result.full_text) {
+          extractedText = result.full_text;
+        } else if (result.text && Array.isArray(result.text)) {
           extractedText = result.text.join('\n');
         } else if (typeof result.text === 'string') {
           extractedText = result.text;
@@ -52,6 +64,7 @@ const performPaddleOCR = async (imagePath) => {
         resolve(extractedText || 'No math text detected');
       } catch (err) {
         console.error('❌ Failed to parse PaddleOCR output:', err);
+        console.error('Raw output:', dataString);
         // If JSON parsing fails, return raw output
         resolve(dataString || 'PaddleOCR processing completed but no text extracted');
       }

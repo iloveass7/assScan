@@ -1,167 +1,235 @@
-const axios = require('axios');
+// Free vision service using smart text formatting
+// No external API calls - 100% free and works offline
 
 const analyzeImageWithVision = async (imageUrl, mode, ocrText) => {
-  try {
-    console.log('🤖 Calling HuggingFace Vision API...');
-    
-    const prompt = generatePrompt(mode, ocrText, imageUrl);
-    
-    // NEW HUGGINGFACE ENDPOINT
-    const response = await axios.post(
-      'https://api-inference.huggingface.co/models/meta-llama/Llama-3.2-11B-Vision-Instruct',
-      {
-        inputs: prompt,
-        parameters: {
-          max_new_tokens: 1000,
-          temperature: 0.3
-        }
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 120000 // 2 minutes for vision models
-      }
-    );
-    
-    console.log('✅ Vision API Response Status:', response.status);
-    
-    // Handle different response formats
-    if (response.data) {
-      // Format 1: Array with generated_text
-      if (Array.isArray(response.data) && response.data[0]?.generated_text) {
-        return response.data[0].generated_text;
-      }
+  console.log('📝 Formatting OCR text for mode:', mode);
+  
+  // Process based on mode
+  return formatAndEnhanceText(mode, ocrText);
+};
+
+const formatAndEnhanceText = (mode, ocrText) => {
+  if (!ocrText || ocrText.trim() === '') {
+    return getDefaultMessage(mode);
+  }
+  
+  switch(mode) {
+    case 'MATH':
+      return enhanceMathText(ocrText);
       
-      // Format 2: Direct generated_text
-      if (response.data.generated_text) {
-        return response.data.generated_text;
-      }
+    case 'GRAPH':
+      return enhanceGraphText(ocrText);
       
-      // Format 3: Plain text response
-      if (typeof response.data === 'string') {
-        return response.data;
-      }
-      
-      // Format 4: Model is loading
-      if (response.data.error && response.data.error.includes('loading')) {
-        const estimatedTime = response.data.estimated_time || 20;
-        throw new Error(`Model is loading. Please wait ${estimatedTime} seconds and try again.`);
-      }
-      
-      // Format 5: Error message
-      if (response.data.error) {
-        throw new Error(`HuggingFace API Error: ${response.data.error}`);
-      }
-    }
-    
-    console.log('⚠️ Unexpected response:', JSON.stringify(response.data));
-    throw new Error('Unexpected response format from HuggingFace API');
-    
-  } catch (error) {
-    console.error('❌ Vision API Error:', error.message);
-    
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', JSON.stringify(error.response.data));
-      
-      if (error.response.status === 401) {
-        throw new Error('Invalid HuggingFace API key. Please check your HUGGINGFACE_API_KEY in .env file.');
-      }
-      
-      if (error.response.status === 403) {
-        throw new Error('Access forbidden. This model may require special permissions or a Pro account.');
-      }
-      
-      if (error.response.status === 404) {
-        throw new Error('Model not found. The model may have been removed or renamed.');
-      }
-      
-      if (error.response.status === 429) {
-        throw new Error('Rate limit exceeded. Please wait a moment and try again.');
-      }
-      
-      if (error.response.status === 503) {
-        throw new Error('Model is currently loading. Please try again in 20-30 seconds.');
-      }
-    }
-    
-    if (error.code === 'ECONNABORTED') {
-      throw new Error('Request timeout. The model took too long to respond.');
-    }
-    
-    throw new Error(`Vision processing failed: ${error.message}`);
+    case 'NORMAL':
+    default:
+      return enhanceNormalText(ocrText);
   }
 };
 
-const generatePrompt = (mode, ocrText, imageUrl) => {
-  const baseInstructions = `You are a vision-enabled question reconstruction assistant.
-Your job is to convert an uploaded exam image into a complete, accurate, and clean text version of the question.
-
-CRITICAL RULES:
-- Pure text ONLY
-- No phrases like "the image shows", "based on the image"
-- Fix all OCR errors
-- Reconstruct missing or blurry text intelligently
-- Keep question formatting (numbering, parts, equations)
-- Remove irrelevant info (page numbers, decorations)
-- NO ANSWERS, NO SOLUTIONS
-
-OCR Text (may have errors):
-${ocrText}
-
-Image URL: ${imageUrl}
-`;
-
-  let modeInstructions = '';
+const enhanceNormalText = (text) => {
+  // Clean up common OCR errors
+  let formatted = text
+    .replace(/\s+/g, ' ') // Multiple spaces to single
+    .replace(/([a-z])([A-Z])/g, '$1 $2') // Add space between camelCase
+    .replace(/\s([.,!?;:])/g, '$1') // Remove space before punctuation
+    .replace(/([.,!?;:])\s*([a-zA-Z])/g, '$1 $2') // Ensure space after punctuation
+    .replace(/(\d+)\s*\.\s*(\d+)/g, '$1.$2') // Fix decimal numbers
+    .replace(/(\w+)\s*'\s*(\w+)/g, "$1'$2"); // Fix contractions
   
-  switch(mode) {
-    case 'NORMAL':
-      modeInstructions = `
-MODE: NORMAL
-- Extract and reconstruct plain text
-- Use OCR text as main source
-- Correct grammar and formatting
-- Only rewrite the question cleanly`;
-      break;
-      
-    case 'MATH':
-      modeInstructions = `
-MODE: MATH
-- Read ALL mathematical expressions from image
-- Convert to clear plain-text notation:
-  √x → sqrt(x)
-  x² → x^2
-  ∫₀¹ x² dx → integral from 0 to 1 of x^2 dx
-  Σ_{i=1}^n i² → summation from i=1 to n of i^2
-  matrices → [[a, b], [c, d]]
-- Preserve every equation accurately
-- Do NOT solve - only restate the question`;
-      break;
-      
-    case 'GRAPH':
-      modeInstructions = `
-MODE: GRAPH/DIAGRAM
-- Provide complete text version of question
-- Add detailed interpretation of ALL visual elements:
-  * Chart/graph type and axes
-  * All data values, bar heights, plot points
-  * Labels, arrows, directions
-  * Component names (circuits, diagrams, geometry)
-  * Shapes, angles, lengths, coordinates
-  * Table contents (all rows/columns)
+  return formatted.trim();
+};
+
+const enhanceMathText = (text) => {
+  let formatted = text;
   
-Format:
-1. Full cleaned text question first
-2. Then write "Diagram Interpretation:" section with detailed breakdown`;
-      break;
-      
-    default:
-      modeInstructions = 'MODE: NORMAL - Reconstruct the question as clean text.';
+  // Math symbol replacements with better formatting
+  const mathReplacements = {
+    // Roots
+    '√': 'sqrt',
+    '∛': 'cbrt',
+    '∜': 'root4',
+    
+    // Calculus
+    '∫': 'integral',
+    '∬': 'double_integral',
+    '∭': 'triple_integral',
+    '∮': 'contour_integral',
+    '∂': 'partial',
+    '∇': 'nabla',
+    
+    // Summations and Products
+    '∑': 'sum',
+    'Σ': 'sum',
+    '∏': 'product',
+    'Π': 'product',
+    
+    // Comparisons
+    '≈': 'approximately_equal_to',
+    '≠': 'not_equal_to',
+    '≤': 'less_than_or_equal_to',
+    '≥': 'greater_than_or_equal_to',
+    '≡': 'equivalent_to',
+    '≅': 'congruent_to',
+    
+    // Set Theory
+    '∈': 'element_of',
+    '∉': 'not_element_of',
+    '⊂': 'subset_of',
+    '⊆': 'subset_or_equal',
+    '∪': 'union',
+    '∩': 'intersection',
+    '∅': 'empty_set',
+    
+    // Logic
+    '∀': 'for_all',
+    '∃': 'exists',
+    '∧': 'and',
+    '∨': 'or',
+    '¬': 'not',
+    '→': 'implies',
+    '⇒': 'implies',
+    '⇔': 'if_and_only_if',
+    
+    // Greek Letters (common in math)
+    'α': 'alpha',
+    'β': 'beta',
+    'γ': 'gamma',
+    'δ': 'delta',
+    'ε': 'epsilon',
+    'θ': 'theta',
+    'λ': 'lambda',
+    'μ': 'mu',
+    'π': 'pi',
+    'σ': 'sigma',
+    'τ': 'tau',
+    'φ': 'phi',
+    'ψ': 'psi',
+    'ω': 'omega',
+    
+    // Special
+    '∞': 'infinity',
+    '±': 'plus_minus',
+    '∓': 'minus_plus',
+    '×': '*',
+    '÷': '/',
+    '·': '*',
+    
+    // Superscripts
+    '²': '^2',
+    '³': '^3',
+    '⁴': '^4',
+    '⁵': '^5',
+    '⁰': '^0',
+    '¹': '^1',
+    
+    // Fractions
+    '½': '(1/2)',
+    '⅓': '(1/3)',
+    '⅔': '(2/3)',
+    '¼': '(1/4)',
+    '¾': '(3/4)',
+    '⅕': '(1/5)',
+    '⅖': '(2/5)',
+    '⅗': '(3/5)',
+    '⅘': '(4/5)',
+    '⅙': '(1/6)',
+    '⅚': '(5/6)',
+    '⅐': '(1/7)',
+    '⅛': '(1/8)',
+    '⅜': '(3/8)',
+    '⅝': '(5/8)',
+    '⅞': '(7/8)'
+  };
+  
+  // Apply replacements
+  for (const [symbol, replacement] of Object.entries(mathReplacements)) {
+    formatted = formatted.replace(new RegExp(symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), replacement);
   }
   
-  return `${baseInstructions}\n${modeInstructions}\n\nNow reconstruct the complete question:`;
+  // Format common mathematical patterns
+  formatted = formatted
+    // Fix fractions like "a/b"
+    .replace(/(\d+)\s*\/\s*(\d+)/g, '($1/$2)')
+    // Fix exponents like "x^2"
+    .replace(/\^(\d+)/g, '^$1')
+    // Fix subscripts (if OCR caught them)
+    .replace(/_(\w+)/g, '_$1')
+    // Clean up spacing around operators
+    .replace(/\s*([+\-*/=])\s*/g, ' $1 ')
+    // Fix parentheses spacing
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')');
+  
+  // Add header
+  return `MATHEMATICAL PROBLEM:\n\n${formatted.trim()}\n\n---\nNote: Mathematical symbols have been converted to text notation for clarity.`;
+};
+
+const enhanceGraphText = (text) => {
+  let formatted = text.trim();
+  
+  // Detect if text contains graph/diagram keywords
+  const graphKeywords = [
+    'axis', 'axes', 'chart', 'graph', 'plot', 'diagram',
+    'x-axis', 'y-axis', 'bar', 'line', 'pie', 'data',
+    'point', 'curve', 'slope', 'coordinate', 'scale',
+    'legend', 'label', 'title', 'figure', 'table'
+  ];
+  
+  const hasGraphContent = graphKeywords.some(keyword => 
+    formatted.toLowerCase().includes(keyword)
+  );
+  
+  if (hasGraphContent) {
+    // Extract and organize graph-related information
+    const lines = formatted.split('\n').filter(l => l.trim());
+    
+    let organized = 'GRAPH/DIAGRAM QUESTION:\n\n';
+    
+    // Try to identify question text vs. labels/data
+    const questionLines = [];
+    const dataLines = [];
+    
+    for (const line of lines) {
+      if (line.match(/^\d+\./) || line.includes('?') || line.length > 50) {
+        questionLines.push(line);
+      } else {
+        dataLines.push(line);
+      }
+    }
+    
+    if (questionLines.length > 0) {
+      organized += 'Question:\n' + questionLines.join('\n') + '\n\n';
+    }
+    
+    if (dataLines.length > 0) {
+      organized += 'Extracted Labels/Data:\n' + dataLines.join('\n') + '\n\n';
+    }
+    
+    organized += '---\nNote: This text was extracted from a diagram/graph. Visual elements like chart types, data points, axes, and spatial relationships cannot be fully captured through text extraction alone. For complete analysis, refer to the original image.';
+    
+    return organized;
+  }
+  
+  // Generic diagram format
+  return `DIAGRAM/VISUAL CONTENT:\n\n${formatted}\n\n---\nNote: Text extracted from diagram. Visual elements require image viewing for complete understanding.`;
+};
+
+const getDefaultMessage = (mode) => {
+  switch(mode) {
+    case 'MATH':
+      return 'No mathematical text detected in the image. The image may contain only visual mathematical elements (graphs, diagrams) or the text quality may be too low for OCR.';
+      
+    case 'GRAPH':
+      return 'No text labels detected in the graph/diagram. The image may contain only visual elements without text, or the text may be too small/unclear for OCR to detect.';
+      
+    default:
+      return 'No text detected in the image.';
+  }
+};
+
+// Legacy function for compatibility
+const generatePrompt = (mode, ocrText, imageUrl) => {
+  return ocrText;
 };
 
 module.exports = {
